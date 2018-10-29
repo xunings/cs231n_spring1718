@@ -66,6 +66,8 @@ class KNearestNeighbor(object):
     num_train = self.X_train.shape[0]
     dists = np.zeros((num_test, num_train))
     for i in xrange(num_test):
+      if i%10 == 0:
+        print(i)
       for j in xrange(num_train):
         #####################################################################
         # TODO:                                                             #
@@ -73,7 +75,9 @@ class KNearestNeighbor(object):
         # training point, and store the result in dists[i, j]. You should   #
         # not use a loop over dimension.                                    #
         #####################################################################
-        pass
+        x_test = X[i,:]
+        x_train = self.X_train[j,:]
+        dists[i,j] = np.sum(np.square(x_test-x_train))
         #####################################################################
         #                       END OF YOUR CODE                            #
         #####################################################################
@@ -95,7 +99,11 @@ class KNearestNeighbor(object):
       # Compute the l2 distance between the ith test point and all training #
       # points, and store the result in dists[i, :].                        #
       #######################################################################
-      pass
+      if i%10 == 0:
+        print(i)
+      x_test = X[i,:]
+      dists[i,:]=np.sum(np.square(x_test-self.X_train), axis=1)
+      
       #######################################################################
       #                         END OF YOUR CODE                            #
       #######################################################################
@@ -109,6 +117,7 @@ class KNearestNeighbor(object):
     Input / Output: Same as compute_distances_two_loops
     """
     num_test = X.shape[0]
+    # num_pixels = X.shape[1]
     num_train = self.X_train.shape[0]
     dists = np.zeros((num_test, num_train)) 
     #########################################################################
@@ -123,7 +132,11 @@ class KNearestNeighbor(object):
     # HINT: Try to formulate the l2 distance using matrix multiplication    #
     #       and two broadcast sums.                                         #
     #########################################################################
-    pass
+    term1 = np.sum(np.square(X), axis=1).reshape(num_test, 1)
+    term2 = 2.0*X.dot(self.X_train.transpose())
+    term3 = np.sum(np.square(self.X_train), axis=1).reshape(1, num_train)
+    dists = term1 - term2 + term3
+    
     #########################################################################
     #                         END OF YOUR CODE                              #
     #########################################################################
@@ -155,7 +168,12 @@ class KNearestNeighbor(object):
       # neighbors. Store these labels in closest_y.                           #
       # Hint: Look up the function numpy.argsort.                             #
       #########################################################################
-      pass
+      sort_idxs = np.argsort(dists[i,:])
+      best_k_idxs = sort_idxs[0:k]
+      closest_y = self.y_train[best_k_idxs]
+      closest_y = closest_y.tolist()
+      
+      
       #########################################################################
       # TODO:                                                                 #
       # Now that you have found the labels of the k nearest neighbors, you    #
@@ -163,7 +181,17 @@ class KNearestNeighbor(object):
       # Store this label in y_pred[i]. Break ties by choosing the smaller     #
       # label.                                                                #
       #########################################################################
-      pass
+      closest_y.sort()
+      best_y = closest_y[0]
+      # print(closest_y)
+      best_count = closest_y.count(best_y)
+      for j in range(1,k):
+        this_y = closest_y[j]
+        this_count = closest_y.count(this_y)
+        if  this_count > best_count:
+            best_y = this_y
+            best_count = this_count
+      y_pred[i] = best_y
       #########################################################################
       #                           END OF YOUR CODE                            # 
       #########################################################################
