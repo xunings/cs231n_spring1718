@@ -34,7 +34,12 @@ def rnn_step_forward(x, prev_h, Wx, Wh, b):
     # hidden state and any values you need for the backward pass in the next_h   #
     # and cache variables respectively.                                          #
     ##############################################################################
-    pass
+    z = x@Wx + prev_h@Wh + b
+    # tanh =  ( exp(x) - exp(-x) ) / ( exp(x) + exp(-x) )
+    #      =  ( exp(2x) - 1 ) / ( exp(2x) + 1 )
+    next_h = ( np.exp(2*z) - 1 ) / ( np.exp(2*z) + 1)
+    #cache = x, prev_h, Wx, Wh, z, next_h
+    cache = x, prev_h, Wx, Wh, next_h
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
@@ -63,7 +68,17 @@ def rnn_step_backward(dnext_h, cache):
     # HINT: For the tanh function, you can compute the local derivative in terms #
     # of the output value from tanh.                                             #
     ##############################################################################
-    pass
+    #x, prev_h, Wx, Wh, z, next_h = cache
+    x, prev_h, Wx, Wh, next_h = cache
+    # for tanh out = ( exp(2x) - 1 ) / ( exp(2x) + 1 ), 
+    # the derivative dout/dx is 4e^2x/(e^2x+1)^2 = 1-(output)^2
+    # dz = dnext_h * 4*np.exp(2*z)/np.square(np.exp(2*z)+1)
+    dz = dnext_h *(1-np.square(next_h))
+    dx = dz@Wx.T
+    dprev_h = dz@Wh.T
+    dWx = x.T@dz
+    dWh = prev_h.T@dz
+    db = dz.sum(axis=0)
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
@@ -94,7 +109,15 @@ def rnn_forward(x, h0, Wx, Wh, b):
     # input data. You should use the rnn_step_forward function that you defined  #
     # above. You can use a for loop to help compute the forward pass.            #
     ##############################################################################
-    pass
+    N,T,D = x.shape
+    _,H = h0.shape
+    cache = []
+    prev_h = h0
+    h = np.zeros((N,T,H))
+    for i in range(T):
+        h[:,i,:], this_cache = rnn_step_forward(x[:,i,:], prev_h, Wx, Wh, b)
+        prev_h = h[:,i,:]
+        cache.append(this_cache)
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
@@ -126,7 +149,22 @@ def rnn_backward(dh, cache):
     # sequence of data. You should use the rnn_step_backward function that you   #
     # defined above. You can use a for loop to help compute the backward pass.   #
     ##############################################################################
-    pass
+    N,T,H = dh.shape
+    _, D = cache[0][0].shape
+    dx = np.zeros((N,T,D))
+    dWx = np.zeros((D,H))
+    dWh = np.zeros((H,H))
+    db = np.zeros((H,))
+    dnext_h = np.zeros((N,H))
+    # There are two backward paths for each hidden state, one from the loss function
+    # of the corresponding step (the input dh), another from the next hidden state.
+    for i in range(T-1, -1, -1):
+        dx[:,i,:], dnext_h, this_dWx, this_dWh, this_db = \
+            rnn_step_backward(dnext_h+dh[:,i,:], cache.pop())
+        dWx += this_dWx
+        dWh += this_dWh
+        db += this_db
+    dh0 = dnext_h
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
@@ -154,7 +192,29 @@ def word_embedding_forward(x, W):
     #                                                                            #
     # HINT: This can be done in one line using NumPy's array indexing.           #
     ##############################################################################
-    pass
+    #print(x)
+    # W is used to transform the V dimension one-hot encoding to a D dimension compact encoding.
+    # though each word is an integer, adjacent intergers are not necessarily related, 
+    # since the integer is used as the index for one-hot encoding.
+    method = 'oneline' # 'my', 'ref'
+    if method == 'my':
+        N,T = x.shape
+        V,D = W.shape
+        one_hot_x = np.zeros((N*T,V))    
+        x_flat = x.reshape(-1)
+        #print(one_hot_x.shape, np.arange(N*T), x_flat)
+        one_hot_x[np.arange(N*T),x_flat]=1
+        out = one_hot_x@W
+        out = out.reshape(N,T,D)
+    elif method == 'oneline':
+        # a bit crazy, but it works!
+        # Ref: https://github.com/maxis42/CS231n/blob/master/assignment3/cs231n/rnn_layers.py
+        # Ref: https://docs.scipy.org/doc/numpy-1.15.0/user/basics.indexing.html#index-arrays
+        # x is used as an "index array" to index W.
+        # this create an x-like (N,T) array, with each element as (1,D), i.e., the indexed result
+        # from W.
+        out = W[x]
+        cache = W.shape, x
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
@@ -173,7 +233,7 @@ def word_embedding_backward(dout, cache):
     - dout: Upstream gradients of shape (N, T, D)
     - cache: Values from the forward pass
 
-    Returns:
+    Returns:p
     - dW: Gradient of word embedding matrix, of shape (V, D).
     """
     dW = None
@@ -183,7 +243,18 @@ def word_embedding_backward(dout, cache):
     # Note that words can appear more than once in a sequence.                   #
     # HINT: Look up the function np.add.at                                       #
     ##############################################################################
-    pass
+    W_shape, x = cache
+    N,T,D=dout.shape
+    dW = np.zeros(W_shape)
+    x_flat = x.reshape(-1)
+    dout_flat = dout.reshape(N*T,D)
+    # Ref: https://docs.scipy.org/doc/numpy-1.15.0/reference/generated/numpy.ufunc.at.html
+    # for each entry in x_flat, get the value first.
+    # Then find the  row in dW corresponding to the x value.
+    # Finally, get the entry's row in dout_flat, and add it to the very row in dW.
+    # Note: it alsos works without reshape, see
+    # https://github.com/maxis42/CS231n/blob/master/assignment3/cs231n/rnn_layers.py
+    np.add.at(dW, x_flat, dout_flat)
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
