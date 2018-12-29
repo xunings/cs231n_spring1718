@@ -37,7 +37,13 @@ def rnn_step_forward(x, prev_h, Wx, Wh, b):
     z = x@Wx + prev_h@Wh + b
     # tanh =  ( exp(x) - exp(-x) ) / ( exp(x) + exp(-x) )
     #      =  ( exp(2x) - 1 ) / ( exp(2x) + 1 )
-    next_h = ( np.exp(2*z) - 1 ) / ( np.exp(2*z) + 1)
+    method = 'builtin' # 'my', 'builtin'
+    if method == 'my':
+        next_h = ( np.exp(2*z) - 1 ) / ( np.exp(2*z) + 1)
+    elif method == 'builtin':
+        next_h = np.tanh(z)
+    else:
+        raise ValueError('Invalid method {} for run_step_forward'.format(methods))
     #cache = x, prev_h, Wx, Wh, z, next_h
     cache = x, prev_h, Wx, Wh, next_h
     ##############################################################################
@@ -406,6 +412,10 @@ def lstm_backward(dh, cache):
 
 
 def temporal_affine_forward(x, w, b):
+    # XN: the forward pass is sequentially run in T steps, but the the output
+    # of all steps can be calculated here in one-shot as if there are N*T min batches
+    # each with one step.
+    
     """
     Forward pass for a temporal affine layer. The input is a set of D-dimensional
     vectors arranged into a minibatch of N timeseries, each of length T. We use
@@ -423,6 +433,7 @@ def temporal_affine_forward(x, w, b):
     """
     N, T, D = x.shape
     M = b.shape[0]
+    # XN: I feel reshape is not needed? (N, T, D)@(D, M)=(N, T, M)
     out = x.reshape(N * T, D).dot(w).reshape(N, T, M) + b
     cache = x, w, b, out
     return out, cache
@@ -479,18 +490,33 @@ def temporal_softmax_loss(x, y, mask, verbose=False):
     - dx: Gradient of loss with respect to scores x.
     """
 
+    # XN: note there is not reverse embedding for the loss computation.
+    # Word embedding is only used at the input side.
+    # The loss function is not separated to forward and backward pass,
+    # since there is no upstream gradients, and the backward pass is done immediately 
+    # after the forward pass.
+    # In contrast, the forward and backward pass are not contiguous for a normal layer.
+    
     N, T, V = x.shape
 
     x_flat = x.reshape(N * T, V)
     y_flat = y.reshape(N * T)
     mask_flat = mask.reshape(N * T)
 
+    # XN: for each sample, minus the max value before exp for numerical stability. 
     probs = np.exp(x_flat - np.max(x_flat, axis=1, keepdims=True))
     probs /= np.sum(probs, axis=1, keepdims=True)
+    # XN: taking the average across minibatch, but not time steps
+    # The loss seems to be neglected if the ground truth is <NULL>. Check mask.
     loss = -np.sum(mask_flat * np.log(probs[np.arange(N * T), y_flat])) / N
     dx_flat = probs.copy()
     dx_flat[np.arange(N * T), y_flat] -= 1
+    # XN: the averaging is considered here. So no need to average again across the mini batch 
+    # in the later backprop process.
     dx_flat /= N
+    # XN: similar to dropout, the backprop is stopped for the corresponding nodes,
+    # except for that the softmax, cross-entropy and dropout are combined to one layer here.
+    # mask_flat[:, None] turns the rank-1 array to the rank-2 column vector.
     dx_flat *= mask_flat[:, None]
 
     if verbose: print('dx_flat: ', dx_flat.shape)

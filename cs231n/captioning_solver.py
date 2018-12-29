@@ -104,6 +104,8 @@ class CaptioningSolver(object):
 
         # Throw an error if there are extra keyword arguments
         if len(kwargs) > 0:
+            # XN: equivalent to '{}'.format(k),
+            # so the expression inside join is a tuple of strings?
             extra = ', '.join('"%s"' % k for k in list(kwargs.keys()))
             raise ValueError('Unrecognized arguments %s' % extra)
 
@@ -111,6 +113,7 @@ class CaptioningSolver(object):
         # name with the actual function
         if not hasattr(optim, self.update_rule):
             raise ValueError('Invalid update_rule "%s"' % self.update_rule)
+        # XN: getattr returns a function in a module.
         self.update_rule = getattr(optim, self.update_rule)
 
         self._reset()
@@ -132,6 +135,8 @@ class CaptioningSolver(object):
         # Make a deep copy of the optim_config for each parameter
         self.optim_configs = {}
         for p in self.model.params:
+            # XN: self.optim_config is just initialized to an empty dict.
+            # What's the point here?
             d = {k: v for k, v in self.optim_config.items()}
             self.optim_configs[p] = d
 
@@ -152,6 +157,7 @@ class CaptioningSolver(object):
         self.loss_history.append(loss)
 
         # Perform a parameter update
+        # XN: the config, e.g., lr, is copied to each param.
         for p, w in self.model.params.items():
             dw = grads[p]
             config = self.optim_configs[p]
@@ -176,6 +182,7 @@ class CaptioningSolver(object):
         - acc: Scalar giving the fraction of instances that were correctly
           classified by the model.
         """
+        # XN: wtf is this return?
         return 0.0
 
         # Maybe subsample the data

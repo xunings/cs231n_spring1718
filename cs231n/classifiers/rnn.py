@@ -39,6 +39,7 @@ class CaptioningRNN(object):
         self.cell_type = cell_type
         self.dtype = dtype
         self.word_to_idx = word_to_idx
+        # XN: flip the key and value of word2idx
         self.idx_to_word = {i: w for w, i in word_to_idx.items()}
         self.params = {}
 
@@ -49,11 +50,13 @@ class CaptioningRNN(object):
         self._end = word_to_idx.get('<END>', None)
 
         # Initialize word vectors
+        # XN: one-hot word -> reduced dim encoding
         self.params['W_embed'] = np.random.randn(vocab_size, wordvec_dim)
         self.params['W_embed'] /= 100
 
         # Initialize CNN -> hidden state projection parameters
         self.params['W_proj'] = np.random.randn(input_dim, hidden_dim)
+        # XN: using Xavier init.
         self.params['W_proj'] /= np.sqrt(input_dim)
         self.params['b_proj'] = np.zeros(hidden_dim)
 
@@ -66,6 +69,7 @@ class CaptioningRNN(object):
         self.params['b'] = np.zeros(dim_mul * hidden_dim)
 
         # Initialize output to vocab weights
+        # hidden -> scores for each possible word
         self.params['W_vocab'] = np.random.randn(hidden_dim, vocab_size)
         self.params['W_vocab'] /= np.sqrt(hidden_dim)
         self.params['b_vocab'] = np.zeros(vocab_size)
@@ -140,7 +144,27 @@ class CaptioningRNN(object):
         # Note also that you are allowed to make use of functions from layers.py   #
         # in your implementation, if needed.                                       #
         ############################################################################
-        pass
+        # (1) forward
+        h0, cache_proj = affine_forward(features, W_proj, b_proj)
+        # (2) forward
+        word_embedded, cache_embed = word_embedding_forward(captions_in, W_embed)
+        # (3) forward
+        h, cache_rnn = rnn_forward(word_embedded, h0, Wx, Wh, b)
+        # (4) forward
+        scores, cache_scores = temporal_affine_forward(h, W_vocab, b_vocab)
+        # (5) forward and backward
+        loss, dscores = temporal_softmax_loss(scores, captions_out, mask, verbose=False)
+        # (4) backward
+        dh, grads['W_vocab'], grads['b_vocab'] = temporal_affine_backward(dscores, cache_scores)
+        # (3) backward, note dh0 is different from dh[0]
+        # dh0 is the gradient for the init hidden array, used for backprop toward the image projection.
+        # dh[0] is the gradient for the hidden array of the 1st output word, used for backprop towards RNN.
+        dword_embedded, dh0, grads['Wx'], grads['Wh'], grads['b'] = rnn_backward(dh, cache_rnn)
+        # (2) backward
+        grads['W_embed'] = word_embedding_backward(dword_embedded, cache_embed)
+        # (1) backward
+        # Further backprop towards the imagenet is possible, but not considered here.
+        _, grads['W_proj'], grads['b_proj'] = affine_backward(dh0, cache_proj)
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -205,7 +229,18 @@ class CaptioningRNN(object):
         # NOTE: we are still working over minibatches in this function. Also if   #
         # you are using an LSTM, initialize the first cell state to zeros.        #
         ###########################################################################
-        pass
+        # have to define the dtype, since the word_in will be used as indices for embedding.
+        word_in = self._start * np.ones(N, dtype=np.int32)
+        h_in, _ = affine_forward(features, W_proj, b_proj)
+        for i in range(max_length):
+            word_in_embedded = W_embed[word_in]
+            h_out, _ = rnn_step_forward(word_in_embedded, h_in, Wx, Wh, b)
+            scores, _ = affine_forward(h_out, W_vocab, b_vocab)
+            captions[:,i] = np.argmax(scores, axis=1)
+            # each step corresponds to one column in captions
+            word_in = captions[:,i]
+            h_in = h_out
+        
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
