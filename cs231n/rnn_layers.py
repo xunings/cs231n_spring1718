@@ -316,7 +316,9 @@ def lstm_step_forward(x, prev_h, prev_c, Wx, Wh, b):
     o = sigmoid(i_f_o_g[:,2*H:3*H])
     g = np.tanh(i_f_o_g[:,3*H:])
     next_c = f*prev_c + i*g
-    next_h = o*np.tanh(next_c)
+    next_c_tanh = np.tanh(next_c)
+    next_h = o*next_c_tanh
+    cache = x, prev_c, prev_h, Wx, Wh, i, f, o, g, next_c_tanh, next_h
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
@@ -348,16 +350,51 @@ def lstm_step_backward(dnext_h, dnext_c, cache):
     # HINT: For sigmoid and tanh you can compute local derivatives in terms of  #
     # the output value from the nonlinearity.                                   #
     #############################################################################
+    x, prev_c, prev_h, Wx, Wh, i, f, o, g, next_c_tanh, next_h = cache
+    N,H = dnext_h.shape   
+    
+    dnext_c_tanh = dnext_h*o
+    dnext_c += tanh_backward(dnext_c_tanh, next_c_tanh)
+    
     df = dnext_c*prev_c
     di = dnext_c*g
     dg = dnext_c*i
-    do = dnext_h*np.tanh(next_h)
+    do = dnext_h*next_c_tanh
+    
+    df_b4_sigmoid = sigmoid_backward(df, f)
+    di_b4_sigmoid = sigmoid_backward(di, i)
+    dg_b4_tanh = tanh_backward(dg, g)
+    do_b4_sigmoid = sigmoid_backward(do, o)
+    
+    # np.stack creates a new axis, should use concatenate 
+    #d_ifog = np.stack( (di_b4_sigmoid, df_b4_sigmoid, do_b4_sigmoid, dg_b4_tanh), axis=0)
+    d_ifog = np.concatenate( (di_b4_sigmoid, df_b4_sigmoid, do_b4_sigmoid, dg_b4_tanh), axis=1)
+    #print(d_ifog.shape, N, H)
+    assert(d_ifog.shape==(N, 4*H))
+    dx = d_ifog @ Wx.T
+    dprev_h = d_ifog @ Wh.T
+    dWx = x.T@d_ifog
+    dWh = prev_h.T@d_ifog
+    db = d_ifog.sum(axis=0)
+    
+    #dprev_c_tanh = dprev_h*o
+    #dprev_c = dnext_c*f + tanh_backward(dprev_c_tanh, np.tanh(prev_c))
+    dprev_c = dnext_c*f
     
     ##############################################################################
     #                               END OF YOUR CODE                             #
     ##############################################################################
 
     return dx, dprev_h, dprev_c, dWx, dWh, db
+
+
+def sigmoid_backward(d_out, out):
+    # sigmoid backprop: d_in = d_out * (out) * (1-out) 
+    return d_out * out * (1-out)
+
+def tanh_backward(d_out, out):
+    # tanh backprop: d_in = d_out*(1-out^2) 
+    return d_out * (1-out**2)
 
 
 def lstm_forward(x, h0, Wx, Wh, b):
