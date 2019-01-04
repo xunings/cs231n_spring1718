@@ -149,7 +149,12 @@ class CaptioningRNN(object):
         # (2) forward
         word_embedded, cache_embed = word_embedding_forward(captions_in, W_embed)
         # (3) forward
-        h, cache_rnn = rnn_forward(word_embedded, h0, Wx, Wh, b)
+        if self.cell_type == 'rnn':
+            h, cache_rnn = rnn_forward(word_embedded, h0, Wx, Wh, b)
+        elif self.cell_type == 'lstm':
+            h, cache_rnn = lstm_forward(word_embedded, h0, Wx, Wh, b)
+        else:
+            raise ValueError('Invalid cell_type {}'.format(self.cell_type))
         # (4) forward
         scores, cache_scores = temporal_affine_forward(h, W_vocab, b_vocab)
         # (5) forward and backward
@@ -159,7 +164,10 @@ class CaptioningRNN(object):
         # (3) backward, note dh0 is different from dh[0]
         # dh0 is the gradient for the init hidden array, used for backprop toward the image projection.
         # dh[0] is the gradient for the hidden array of the 1st output word, used for backprop towards RNN.
-        dword_embedded, dh0, grads['Wx'], grads['Wh'], grads['b'] = rnn_backward(dh, cache_rnn)
+        if self.cell_type == 'rnn':
+            dword_embedded, dh0, grads['Wx'], grads['Wh'], grads['b'] = rnn_backward(dh, cache_rnn)
+        elif self.cell_type == 'lstm':
+            dword_embedded, dh0, grads['Wx'], grads['Wh'], grads['b'] = lstm_backward(dh, cache_rnn)
         # (2) backward
         grads['W_embed'] = word_embedding_backward(dword_embedded, cache_embed)
         # (1) backward
@@ -232,14 +240,22 @@ class CaptioningRNN(object):
         # have to define the dtype, since the word_in will be used as indices for embedding.
         word_in = self._start * np.ones(N, dtype=np.int32)
         h_in, _ = affine_forward(features, W_proj, b_proj)
+        if self.cell_type == 'lstm':
+            c_in = np.zeros_like(h_in)
         for i in range(max_length):
             word_in_embedded = W_embed[word_in]
-            h_out, _ = rnn_step_forward(word_in_embedded, h_in, Wx, Wh, b)
+            if self.cell_type == 'rnn':
+                h_out, _ = rnn_step_forward(word_in_embedded, h_in, Wx, Wh, b)
+            elif self.cell_type == 'lstm':
+                h_out, c_in, _ = lstm_step_forward(word_in_embedded, h_in, c_in, Wx, Wh, b)
+            else:
+                raise ValueError('Invalid cell type {}'.format(self.cell_type))
             scores, _ = affine_forward(h_out, W_vocab, b_vocab)
             captions[:,i] = np.argmax(scores, axis=1)
             # each step corresponds to one column in captions
             word_in = captions[:,i]
             h_in = h_out
+            
         
         ############################################################################
         #                             END OF YOUR CODE                             #
