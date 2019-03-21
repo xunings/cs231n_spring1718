@@ -1,0 +1,7 @@
+*.swp
+*.pyc
+.env/*
+
+assignment3/*
+
+*.zip
